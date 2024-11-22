@@ -31,8 +31,8 @@ type Config struct {
 // MetricsConfig is the configuration for the metrics part of the receiver
 // this is so we could expand to other inputs such as autodiscover
 type MetricsConfig struct {
-	AutoDiscover *AutoDiscoverConfig `mapstructure:"autodiscover,omitempty"`
-	NamedMetrics []NamedMetricConfig `mapstructure:"named"`
+	AutoDiscover []*AutoDiscoverConfig `mapstructure:"autodiscover,omitempty"`
+	NamedMetrics []NamedMetricConfig   `mapstructure:"named"`
 }
 
 type AutoDiscoverConfig struct {
@@ -130,20 +130,23 @@ func (cfg *Config) validateMetricsConfig() error {
 	return cfg.validateNamedMetrics()
 }
 
-func validateAutoDiscoveryConfig(autodiscoveryConfig *AutoDiscoverConfig) error {
-	if autodiscoveryConfig.Namespace == "" {
-		return errNoNamespaceConfigured
+func validateAutoDiscoveryConfig(autodiscoveryConfigs []*AutoDiscoverConfig) error {
+	for _, autodiscoveryConfig := range autodiscoveryConfigs {
+		if autodiscoveryConfig.Namespace == "" {
+			return errNoNamespaceConfigured
+		}
+
+		if err := validatePeriod(autodiscoveryConfig.Period); err != nil {
+			return err
+		}
+		if err := validateAwsAggregation(autodiscoveryConfig.AwsAggregation); err != nil {
+			return err
+		}
+		if err := validateDimensions(autodiscoveryConfig.Dimensions); err != nil {
+			return err
+		}
 	}
 
-	if err := validatePeriod(autodiscoveryConfig.Period); err != nil {
-		return err
-	}
-	if err := validateAwsAggregation(autodiscoveryConfig.AwsAggregation); err != nil {
-		return err
-	}
-	if err := validateDimensions(autodiscoveryConfig.Dimensions); err != nil {
-		return err
-	}
 	return nil
 }
 

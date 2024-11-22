@@ -40,7 +40,7 @@ type metricReceiver struct {
 	nextStartTime time.Time
 	logger        *zap.Logger
 	client        client
-	autoDiscover  *AutoDiscoverConfig
+	autoDiscover  []*AutoDiscoverConfig
 	requests      []request
 	consumer      consumer.Metrics
 	buildInfo     component.BuildInfo
@@ -310,46 +310,48 @@ func (m *metricReceiver) parseMetrics(_ pcommon.Timestamp, rmapID map[string]req
 	return pdm
 }
 
-func (m *metricReceiver) autoDiscoverRequests(ctx context.Context, auto *AutoDiscoverConfig) ([]request, error) {
-	m.logger.Debug("discovering metrics", zap.String("namespace", auto.Namespace))
-
+func (m *metricReceiver) autoDiscoverRequests(ctx context.Context, autos []*AutoDiscoverConfig) ([]request, error) {
 	requests := []request{}
 	err := m.configureAWSClient(ctx)
 	if err != nil {
 		m.logger.Error("unable to establish connection auto discover metrics on cloudwatch", zap.Error(err))
 	}
 
-	input := &cloudwatch.ListMetricsInput{
-		Namespace:  aws.String(auto.Namespace),
-		MetricName: auto.MetricName,
-		Dimensions: auto.DimensionsFilter(),
-	}
+	for _, auto := range autos {
+		m.logger.Debug("discovering metrics", zap.String("namespace", auto.Namespace))
 
-	paginator := cloudwatch.NewListMetricsPaginator(m.client, input)
-	for paginator.HasMorePages() {
-		select {
-		// if done, we want to stop processing paginated requests
-		case _, ok := <-m.doneChan:
-			if !ok {
-				return nil, fmt.Errorf("done channel closed")
-			}
-		default:
-			out, err := paginator.NextPage(ctx)
-			if err != nil {
-				return nil, err
-			}
+		input := &cloudwatch.ListMetricsInput{
+			Namespace:  aws.String(auto.Namespace),
+			MetricName: auto.MetricName,
+			Dimensions: auto.DimensionsFilter(),
+		}
 
-			for _, metric := range out.Metrics {
-				requests = append(requests,
-					request{
-						ID:             generateID(),
-						Namespace:      *metric.Namespace,
-						MetricName:     *metric.MetricName,
-						Period:         auto.Period,
-						AwsAggregation: auto.AwsAggregation,
-						Dimensions:     metric.Dimensions,
-					},
-				)
+		paginator := cloudwatch.NewListMetricsPaginator(m.client, input)
+		for paginator.HasMorePages() {
+			select {
+			// if done, we want to stop processing paginated requests
+			case _, ok := <-m.doneChan:
+				if !ok {
+					return nil, fmt.Errorf("done channel closed")
+				}
+			default:
+				out, err := paginator.NextPage(ctx)
+				if err != nil {
+					return nil, err
+				}
+
+				for _, metric := range out.Metrics {
+					requests = append(requests,
+						request{
+							ID:             generateID(),
+							Namespace:      *metric.Namespace,
+							MetricName:     *metric.MetricName,
+							Period:         auto.Period,
+							AwsAggregation: auto.AwsAggregation,
+							Dimensions:     metric.Dimensions,
+						},
+					)
+				}
 			}
 		}
 	}
